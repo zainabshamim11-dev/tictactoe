@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic-Tac-Toe</title>
+<style>
+  :root {
+    --bg: #0e1424; --panel: #17203a; --grid: #22d3ee; --x: #ff4d5e; --o: #3ddc84;
+    --text: #e8ecf7; --muted: #8e9ac0; --gold: #ffd24d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    display: flex; justify-content: center; padding: 24px 16px;
+  }
+  main { width: 100%; max-width: 420px; }
+  h1 { text-align: center; font-size: 2rem; letter-spacing: .06em; margin: 0 0 20px; color: var(--gold); }
+  .panel { background: var(--panel); border-radius: 14px; padding: 20px; }
+  label { display: block; margin-bottom: 14px; color: var(--muted); font-size: .9rem; }
+  input[type=text] {
+    width: 100%; margin-top: 6px; padding: 12px; font-size: 1rem; border-radius: 8px;
+    border: 2px solid transparent; background: var(--bg); color: var(--text);
+  }
+  #name1:focus { border-color: var(--x); outline: none; }
+  #name2:focus { border-color: var(--o); outline: none; }
+  button {
+    font: inherit; font-weight: 700; cursor: pointer; border: 0; border-radius: 8px;
+    padding: 12px 18px; background: var(--grid); color: #06202a;
+  }
+  button:focus-visible, .cell:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .wide { width: 100%; }
+  #game { display: none; }
+  #status { text-align: center; font-size: 1.15rem; min-height: 1.6em; margin: 0 0 14px; }
+  .board {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    background: var(--grid); padding: 6px; border-radius: 12px;
+  }
+  .cell {
+    aspect-ratio: 1; background: var(--panel); border: 0; border-radius: 6px;
+    font-size: clamp(2.5rem, 14vw, 4rem); font-weight: 900; color: var(--text); padding: 0;
+  }
+  .cell:hover:not(:disabled) { background: #1d2848; }
+  .cell.x { color: var(--x); } .cell.o { color: var(--o); }
+  .cell.win { background: #2b3a66; }
+  #message { text-align: center; color: var(--muted); min-height: 1.4em; margin: 12px 0 0; font-size: .9rem; }
+  #message.error { color: var(--x); }
+  .actions { display: flex; gap: 10px; margin-top: 14px; }
+  .actions button { flex: 1; }
+  .secondary { background: transparent; color: var(--text); border: 2px solid var(--muted); }
+  table { width: 100%; margin-top: 18px; border-collapse: collapse; }
+  caption { text-align: left; color: var(--grid); font-weight: 700; padding-bottom: 6px; }
+  td { padding: 7px 0; border-top: 1px solid #2a3558; }
+  td:last-child { text-align: right; font-weight: 700; }
+  .rx { color: var(--x); } .go { color: var(--o); } .dr { color: var(--gold); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tic-Tac-Toe</h1>
+
+  <section id="setup" class="panel">
+    <label>Player 1 (plays X)
+      <input type="text" id="name1" maxlength="14" placeholder="Enter name">
+    </label>
+    <label>Player 2 (plays O)
+      <input type="text" id="name2" maxlength="14" placeholder="Enter name">
+    </label>
+    <button class="wide" id="start">Start game</button>
+  </section>
+
+  <section id="game" class="panel">
+    <p id="status" aria-live="polite"></p>
+    <div class="board" id="board"></div>
+    <p id="message" aria-live="polite"></p>
+    <div class="actions">
+      <button id="next">Next round</button>
+      <button id="quit" class="secondary">End game</button>
+    </div>
+    <table>
+      <caption id="scoreTitle">Scoreboard</caption>
+      <tr><td>Total games played</td><td id="sGames">0</td></tr>
+      <tr><td class="rx" id="sN1"></td><td class="rx" id="sW1">0</td></tr>
+      <tr><td class="go" id="sN2"></td><td class="go" id="sW2">0</td></tr>
+      <tr><td class="dr">Draws</td><td class="dr" id="sDraws">0</td></tr>
+    </table>
+  </section>
+</main>
+
+<script>
+  // The 8 winning lines, as cell positions 0-8 (same idea as rows, columns, diagonals)
+  const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  const $ = id => document.getElementById(id);
+
+  let names = ["", ""];
+  let board = Array(9).fill("");   // "", "X" or "O"
+  let turn = 0;                    // 0 = Player 1 (X), 1 = Player 2 (O)
+  let over = false;
+  let score = { games: 0, w1: 0, w2: 0, draws: 0 };
+
+  // Build the 9 buttons once
+  for (let i = 0; i < 9; i++) {
+    const b = document.createElement("button");
+    b.className = "cell";
+    b.setAttribute("aria-label", "Cell " + (i + 1));
+    b.addEventListener("click", () => play(i));
+    $("board").appendChild(b);
+  }
+  const cells = [...document.querySelectorAll(".cell")];
+
+  function say(text, isError) {
+    $("message").textContent = text;
+    $("message").className = isError ? "error" : "";
+  }
+
+  function render() {
+    cells.forEach((c, i) => {
+      c.textContent = board[i];
+      c.className = "cell" + (board[i] ? " " + board[i].toLowerCase() : "");
+    });
+    $("sGames").textContent = score.games;
+    $("sW1").textContent = score.w1;
+    $("sW2").textContent = score.w2;
+    $("sDraws").textContent = score.draws;
+  }
+
+  function startRound() {
+    board = Array(9).fill("");
+    over = false;
+    turn = 0;
+    $("status").textContent = names[turn] + " (X), your move";
+    say("");
+    render();
+  }
+
+  function winningLine(sym) {
+    return LINES.find(l => l.every(i => board[i] === sym));
+  }
+
+  function play(i) {
+    if (over) { say("Round finished. Press Next round.", true); return; }
+    if (board[i]) { say("That cell is already taken. Pick another.", true); return; }
+
+    const sym = turn === 0 ? "X" : "O";
+    board[i] = sym;
+    say("");
+    render();
+
+    const line = winningLine(sym);
+    if (line) {
+      line.forEach(k => cells[k].classList.add("win"));
+      $("status").textContent = names[turn] + " wins this round!";
+      turn === 0 ? score.w1++ : score.w2++;
+      score.games++;
+      over = true;
+    } else if (board.every(c => c)) {
+      $("status").textContent = "It's a draw!";
+      score.draws++; score.games++;
+      over = true;
+    } else {
+      turn = 1 - turn;
+      $("status").textContent = names[turn] + " (" + (turn === 0 ? "X" : "O") + "), your move";
+    }
+    render();
+    if (line) line.forEach(k => cells[k].classList.add("win"));
+  }
+
+  $("start").addEventListener("click", () => {
+    names[0] = $("name1").value.trim() || "Player 1";
+    names[1] = $("name2").value.trim() || "Player 2";
+    $("sN1").textContent = names[0] + " (X) wins";
+    $("sN2").textContent = names[1] + " (O) wins";
+    $("setup").style.display = "none";
+    $("game").style.display = "block";
+    startRound();
+  });
+
+  $("next").addEventListener("click", startRound);
+
+  $("quit").addEventListener("click", () => {
+    over = true;
+    $("scoreTitle").textContent = "Final scoreboard";
+    $("status").textContent = "Thanks for playing!";
+    say("Refresh the page to start a new match.");
+  });
+</script>
+</body>
+</html>
